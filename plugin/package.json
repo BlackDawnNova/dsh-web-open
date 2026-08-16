@@ -1,0 +1,45 @@
+{
+  "name": "@dsh-external/dsh-web-open",
+  "version": "1.0.0",
+  "description": "DSH 内嵌网页插件:open_url 在 DSH 内嵌窗口中打开任意 http(s) 网页(不跳系统浏览器);需要 main.js 补丁,install.py 一键安装。 / Embedded browser plugin for DSH: open_url opens pages in DSH's built-in window; requires main.js patch, one-click install via install.py.",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json",
+    "./client": {
+      "default": "./lib/client.js"
+    }
+  },
+  "files": [
+    "lib",
+    "dsh.plugin.json"
+  ],
+  "license": "BSD-3-Clause",
+  "engines": {
+    "dsh": ">=0.0.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "dshx": {
+    "contributes": {
+      "tools": [
+        "open_url"
+      ],
+      "skills": []
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.0.1"
+  }
+}

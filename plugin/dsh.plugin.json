@@ -1,0 +1,15 @@
+{
+  "id": "@dsh-external/dsh-web-open",
+  "version": "1.0.0",
+  "main": "./lib/index.js",
+  "description": "Open a webpage in an embedded DSH window (open_url tool), without leaving DSH",
+  "engines": {
+    "dsh": ">=0.0.1"
+  },
+  "contributes": {
+    "tools": [
+      "open_url"
+    ],
+    "skills": []
+  }
+}
