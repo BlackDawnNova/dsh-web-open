@@ -14,6 +14,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools';
 import os from 'node:os';
 import path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 export const name = 'dsh-web-open';
@@ -139,6 +140,38 @@ function nonHtmlNotice(target, contentType) {
     '<p>该内容类型(<b>' + String(contentType || 'unknown').replace(/</g, '&lt;') + '</b>)不适合窗口内嵌。</p>' +
     '<p><a href="' + h + '" target="_blank" rel="noopener" style="color:#7dd3fc;">在系统浏览器打开 ↗</a></p>' +
     '</div></body></html>'
+  );
+}
+
+// 网络错误码文案(对应旧 Electron 版 did-fail-load 错误码映射):iframe 代理失败时显示错误页而非白屏
+function zhLang(req) {
+  try { return /zh/i.test(String((req.headers && req.headers['accept-language']) || '')); } catch { return true; }
+}
+function proxyErrorPage(target, msg, zh, proxyBase) {
+  const T = zh
+    ? { title: '无法访问此网站', dns: '域名无法解析', conn: '无法连接到服务器', timeout: '连接超时', reset: '连接被重置', net: '网络错误', load: '加载失败', retry: '重试', external: '在系统浏览器打开' }
+    : { title: "This site can't be reached", dns: 'DNS resolution failed', conn: 'Cannot reach the server', timeout: 'Connection timed out', reset: 'Connection was reset', net: 'Network error', load: 'Load failed', retry: 'Retry', external: 'Open in system browser' };
+  let key = 'load';
+  const m = String(msg || '');
+  if (/getaddrinfo|ENOTFOUND|EAI_AGAIN|\bdns\b/i.test(m)) key = 'dns';
+  else if (/timed out|timeout|abort/i.test(m)) key = 'timeout';
+  else if (/ECONNREFUSED|refused/i.test(m)) key = 'conn';
+  else if (/ECONNRESET|reset/i.test(m)) key = 'reset';
+  else if (/fetch failed|ENETUNREACH|network/i.test(m)) key = 'net';
+  const safeUrl = String(target).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const retryHref = proxyUrlFor(proxyBase, target) + '&r=' + Date.now();
+  const extHref = String(target).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  return (
+    '<!doctype html><html><head><meta charset="utf-8"><title>' + T.title + '</title></head>' +
+    '<body style="margin:0;font-family:system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;display:flex;align-items:center;justify-content:center;height:100vh">' +
+    '<div style="text-align:center;max-width:640px;padding:24px">' +
+    '<div style="font-size:44px;margin-bottom:14px">⚠️</div>' +
+    '<div style="font-size:17px;font-weight:600">' + T.title + '</div>' +
+    '<div style="color:#a6adc8;margin-top:10px;font-size:13px;line-height:1.7">' + T[key] + '<br><span style="word-break:break-all">' + safeUrl + '</span></div>' +
+    '<div style="margin-top:24px;display:flex;gap:12px;justify-content:center">' +
+    '<a href="' + retryHref + '" style="text-decoration:none;background:#89b4fa;color:#11111b;border-radius:6px;padding:8px 22px;font-size:13px;font-weight:600">' + T.retry + '</a>' +
+    '<a href="' + extHref + '" target="_blank" rel="noopener" style="text-decoration:none;background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:6px;padding:8px 22px;font-size:13px">' + T.external + '</a>' +
+    '</div></div></body></html>'
   );
 }
 
@@ -452,11 +485,13 @@ export function apply(ctx) {
         } catch (e) { sendJson(res, 500, { ok: false, error: String((e && e.message) || e) }); }
       });
       addRoute('/__dsh_web_open__/proxy', async (req, res) => {
+        // try/catch 是两个独立块作用域:catch 分支要用的变量必须在函数级声明
+        let target = '';
         try {
           if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*' }); res.end(); return; }
           if (req.method !== 'GET') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
           const u = new URL(req.url || '/', 'http://127.0.0.1');
-          const target = cleanTarget(u.searchParams.get('url') || '');
+          target = cleanTarget(u.searchParams.get('url') || '');
           if (!URL_RE.test(target)) { sendJson(res, 400, { ok: false, error: 'bad url' }); return; }
           const fres = await fetch(target, {
             redirect: 'follow',
@@ -469,11 +504,8 @@ export function apply(ctx) {
           });
           const finalUrl = fres.url || target;
           const ct = String(fres.headers.get('content-type') || '').toLowerCase();
-          if (!fres.ok) {
-            sendJson(res, 502, { ok: false, error: 'upstream HTTP ' + fres.status, url: finalUrl });
-            return;
-          }
           if (/text\/html|application\/xhtml|text\/plain/.test(ct)) {
+            // 上游 404/403 等也照样展示(页面本身常带 content-type),状态码固定 200 让 iframe 正常渲染
             const html = await fres.text();
             const out = rewriteHtmlForProxy(html, finalUrl, 'http://127.0.0.1:' + ctx.webServer.port);
             res.writeHead(200, {
@@ -483,7 +515,7 @@ export function apply(ctx) {
               'access-control-allow-origin': '*',
             });
             res.end(out);
-          } else {
+          } else if (fres.ok) {
             // 非 HTML(下载类):引导页,由客户端右上角按钮接管系统浏览器
             const notice = nonHtmlNotice(finalUrl, fres.headers.get('content-type') || ct);
             res.writeHead(200, {
@@ -492,15 +524,83 @@ export function apply(ctx) {
               'x-dsh-proxied-url': finalUrl,
             });
             res.end(notice);
+          } else {
+            // 非 HTML 且上游报错 → 网络错误页(替代白屏/裸 JSON)
+            const page = proxyErrorPage(finalUrl, 'upstream HTTP ' + fres.status, zhLang(req), 'http://127.0.0.1:' + ctx.webServer.port);
+            res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+            res.end(page);
           }
         } catch (e) {
-          const msg = String((e && e.message) || e);
-          if (/abort|timeout|Timed out/i.test(msg)) {
-            sendJson(res, 504, { ok: false, error: 'upstream timeout' });
-          } else {
-            sendJson(res, 502, { ok: false, error: msg });
-          }
+          // 网络级失败(DNS/连接/超时/重置)→ 错误页;iframe 显示而非 JSON
+          // undici 把真实原因放在 e.cause(如 getaddrinfo ENOTFOUND),拼进来供错误码归类
+          const raw = String((e && e.message) || e) + ' ' + String(((e && e.cause && (e.cause.message || e.cause)) || ''));
+          const page = proxyErrorPage(target, raw, zhLang(req), 'http://127.0.0.1:' + ctx.webServer.port);
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+          res.end(page);
         }
+      });
+      // 下载流代理:客户端下载面板用(进度/暂停/续传都建立在它之上)。
+      // 透传 Range 实现断点续传;上游 body 流式 pipe,不占内存;客户端断开即中止上游。
+      addRoute('/__dsh_web_open__/fetch', async (req, res) => {
+        try {
+          if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*' }); res.end(); return; }
+          if (req.method !== 'GET') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
+          const u = new URL(req.url || '/', 'http://127.0.0.1');
+          const target = cleanTarget(u.searchParams.get('url') || '');
+          if (!URL_RE.test(target)) { sendJson(res, 400, { ok: false, error: 'bad url' }); return; }
+          const ctrl = new AbortController();
+          const onClose = () => { try { ctrl.abort(); } catch {} };
+          req.on('close', onClose);
+          const fh = {
+            'user-agent': PROXY_BROWSER_UA,
+            'accept': '*/*',
+          };
+          const range = u.searchParams.get('range');
+          if (range && /^bytes=\d+-/.test(range)) fh['range'] = range; // 续传/重试:透传断点
+          const fres = await fetch(target, { redirect: 'follow', signal: ctrl.signal, headers: fh });
+          if (!fres.ok || !fres.body) {
+            sendJson(res, 502, { ok: false, error: 'upstream HTTP ' + (fres.status || 0) });
+            return;
+          }
+          const out = {
+            'access-control-allow-origin': '*',
+            'cache-control': 'no-store',
+            'x-dsh-proxied-url': fres.url || target,
+          };
+          for (const k of ['content-type', 'content-length', 'content-disposition', 'content-range', 'accept-ranges']) {
+            const v = fres.headers.get(k);
+            if (v) out[k] = String(v).replace(/[\r\n]/g, '');
+          }
+          res.writeHead(200, out);
+          const readable = Readable.fromWeb(fres.body);
+          readable.on('error', () => { try { res.destroy(); } catch {} });
+          res.on('close', () => { if (!res.writableEnded) { try { readable.destroy(); } catch {} } });
+          readable.pipe(res);
+        } catch (e) {
+          if (res.headersSent) { try { res.destroy(); } catch {} return; }
+          const msg = String((e && e.message) || e);
+          if (/abort/i.test(msg)) { try { res.destroy(); } catch {} return; }
+          sendJson(res, 502, { ok: false, error: msg });
+        }
+      });
+      // 旧版(Electron 时代)数据只读迁移:dsh-web-open-history/bookmarks/tabs.json,供客户端一键导入
+      addRoute('/__dsh_web_open__/legacy', async (_req, res) => {
+        try {
+          const ud = path.join(os.homedir(), 'AppData', 'Roaming', 'DSH Desktop');
+          const out = { history: [], bookmarks: [], tabs: [] };
+          for (const [k, f] of [
+            ['history', 'dsh-web-open-history.json'],
+            ['bookmarks', 'dsh-web-open-bookmarks.json'],
+            ['tabs', 'dsh-web-open-tabs.json'],
+          ]) {
+            try {
+              const raw = fs.readFileSync(path.join(ud, f), 'utf8');
+              const j = JSON.parse(raw);
+              if (Array.isArray(j)) out[k] = j;
+            } catch {}
+          }
+          sendJson(res, 200, { ok: true, data: out });
+        } catch (e) { sendJson(res, 500, { ok: false, error: String((e && e.message) || e) }); }
       });
       addRoute('/__dsh_web_open__/events', (req, res) => {
         try { handleSseEvents(req, res); } catch (e) { try { res.destroy(); } catch {} }
