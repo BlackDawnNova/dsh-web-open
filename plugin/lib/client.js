@@ -156,7 +156,7 @@ window.__ModuleLoader__.load({
     var HIST_KEY = "dsh-webbox-history";
     var BK_KEY = "dsh-webbox-bookmarks";
     var SESSION_KEY = "dsh-webbox-session";
-    var histBtn, favBtn, histPanel, bkPanel, histList, bkList;
+    var histBtn, favBtn, histPanel, bkPanel, histList, bkList, histTab = "h";
 
     function loadArray(key) {
       try {
@@ -301,6 +301,10 @@ window.__ModuleLoader__.load({
         ".dsh-webbox-dl .ctl:hover{color:#fff}" +
         ".dsh-webbox-dl .fav{background:transparent;border:none;color:#f9a825;font-size:13px;cursor:pointer;padding:2px 4px;flex:none}" +
         ".dsh-webbox-dl .fav:hover{color:#ffd54f}" +
+        ".dsh-webbox-tabs{display:flex;gap:6px;padding:6px 10px;border-bottom:1px solid #313244}" +
+        ".dsh-webbox-tabs .tb{background:transparent;border:1px solid transparent;color:#a6adc8;border-radius:6px;padding:3px 14px;font-size:12px;cursor:pointer}" +
+        ".dsh-webbox-tabs .tb:hover{color:#cdd6f4}" +
+        ".dsh-webbox-tabs .tb.on{background:#313244;color:#fff;border-color:#45475a}" +
         ".dsh-webbox-dl .empty{color:#6c7086;padding:16px 0;text-align:center}" +
         ".dsh-webbox-set{padding:0 14px 14px;overflow-y:auto}" +
         ".dsh-webbox-set label{display:block;color:#a6adc8;margin:14px 0 6px;font-size:12px}" +
@@ -487,23 +491,37 @@ window.__ModuleLoader__.load({
       dingSel.innerHTML = "<option value='b'>" + T("dingB") + "</option><option value='a'>" + T("dingA") + "</option>";
       dingSel.value = st.dingSound;
       el("div", { className: "note", textContent: T("webNote") }, setBox);
-      // 历史/书签面板
+      // 历史面板(内含 历史/收藏 双 tab 切换;清空历史不动收藏,收藏在收藏tab看)
       histPanel = el("div", { className: "dsh-webbox-panel", id: "dsh-webbox-histpanel" }, panels);
       panelHead(histPanel, T("histTitle"));
+      var histTabs = el("div", { className: "dsh-webbox-tabs", id: "dsh-webbox-histtabs" }, histPanel);
+      var histTabH = el("button", { className: "tb on", textContent: T("histTitle") }, histTabs);
+      var histTabB = el("button", { className: "tb", textContent: T("bkTitle") }, histTabs);
+      var setHistTab = function (t2) {
+        histTab = t2;
+        var hts = histTabs.querySelectorAll(".tb");
+        if (hts[0]) hts[0].classList.toggle("on", t2 === "h");
+        if (hts[1]) hts[1].classList.toggle("on", t2 === "b");
+        if (histList) histList.style.display = t2 === "h" ? "" : "none";
+        if (bkList) bkList.style.display = t2 === "b" ? "" : "none";
+        histClearBtn.textContent = t2 === "b" ? T("bkClear") : T("histClear");
+        histImportBtn.style.display = t2 === "h" ? "" : "none";
+        if (t2 === "h") renderHistory();
+        else renderBookmarks();
+      };
       var histCtl = el("div", { className: "pc" }, histPanel);
       var histClearBtn = el("button", { textContent: T("histClear") }, histCtl);
       var histImportBtn = el("button", { textContent: T("histImport") }, histCtl);
       el("span", { className: "sp" }, histCtl);
       histList = el("div", { className: "dsh-webbox-dl" }, histPanel);
-      bkPanel = el("div", { className: "dsh-webbox-panel", id: "dsh-webbox-bkpanel" }, panels);
-      panelHead(bkPanel, T("bkTitle"));
-      var bkCtl = el("div", { className: "pc" }, bkPanel);
-      var bkClearBtn = el("button", { textContent: T("bkClear") }, bkCtl);
-      el("span", { className: "sp" }, bkCtl);
-      bkList = el("div", { className: "dsh-webbox-dl" }, bkPanel);
-      histClearBtn.addEventListener("click", function () { history = []; saveHist(); renderHistory(); });
+      bkList = el("div", { className: "dsh-webbox-dl", style: "display:none" }, histPanel);
+      histClearBtn.addEventListener("click", function () {
+        if (histTab === "b") { bookmarks = []; saveBk(); renderBookmarks(); updateFavBtn(); }
+        else { history = []; saveHist(); renderHistory(); }
+      });
       histImportBtn.addEventListener("click", importLegacy);
-      bkClearBtn.addEventListener("click", function () { bookmarks = []; saveBk(); renderBookmarks(); updateFavBtn(); });
+      histTabH.addEventListener("click", function () { setHistTab("h"); });
+      histTabB.addEventListener("click", function () { loadBk(); setHistTab("b"); });
       histList.addEventListener("click", function (e) {
         var r = e.target && e.target.closest ? e.target.closest("[data-h]") : null;
         if (!r) return;
@@ -538,14 +556,18 @@ window.__ModuleLoader__.load({
           openTab(r.getAttribute("data-b"), "");
         }
       });
-      histBtn.addEventListener("click", function () { loadHist(); renderHistory(); togglePanel("history"); });
+      histBtn.addEventListener("click", function () { loadHist(); renderHistory(); setHistTab("h"); togglePanel("history"); });
       favBtn.addEventListener("click", function () {
         var t = activeTab();
         if (!t || /^data:/i.test(t.url)) {
-          flashMsg(T("dlTitle") === T("dlTitle") ? T("bkAdd") : T("bkAdd")); // 起始页不可收藏,给个提示
+          flashMsg(T("bkAdd"));
           return;
         }
         toggleFav(t.url, t.title || "");
+        // 切到收藏 tab 展示结果(收藏/取消都即时可见)
+        loadHist(); renderHistory(); loadBk(); renderBookmarks();
+        setHistTab("b");
+        if (panelOpen !== "history") togglePanel("history");
       });
       langSel.addEventListener("change", function () { writeSettings({ lang: langSel.value }); });
       engSel.addEventListener("change", function () { writeSettings({ searchEngine: engSel.value }); });
@@ -630,14 +652,14 @@ window.__ModuleLoader__.load({
       var hPc = win.querySelector("#dsh-webbox-histpanel .pc");
       if (hPc) {
         var hb = hPc.querySelectorAll("button");
-        var ht = [T("histClear"), T("histImport")];
+        var ht = [histTab === "b" ? T("bkClear") : T("histClear"), T("histImport")];
         for (var j2 = 0; j2 < hb.length && j2 < ht.length; j2++) hb[j2].textContent = ht[j2];
       }
-      var bPc = win.querySelector("#dsh-webbox-bkpanel .pc");
-      if (bPc) {
-        var bb = bPc.querySelectorAll("button");
-        var bt = [T("bkClear")];
-        for (var j3 = 0; j3 < bb.length && j3 < bt.length; j3++) bb[j3].textContent = bt[j3];
+      var histTabsEl = win.querySelector("#dsh-webbox-histtabs");
+      if (histTabsEl) {
+        var htb = histTabsEl.querySelectorAll(".tb");
+        if (htb[0]) { htb[0].textContent = T("histTitle"); htb[0].classList.toggle("on", histTab === "h"); }
+        if (htb[1]) { htb[1].textContent = T("bkTitle"); htb[1].classList.toggle("on", histTab === "b"); }
       }
       var sPc = win.querySelector("#dsh-webbox-setpanel .pc");
       if (sPc) {
@@ -855,7 +877,7 @@ window.__ModuleLoader__.load({
       histList.innerHTML = html;
     }
     function renderBookmarks() {
-      if (!bkPanel) return;
+      if (!bkList) return;
       if (!bookmarks.length) {
         bkList.innerHTML = "<div class='empty'>" + T("bkEmpty") + "</div>";
         return;
@@ -1005,11 +1027,27 @@ window.__ModuleLoader__.load({
       bDl.addEventListener("click", function () { close(); startDownload(url, name); });
       bSa.addEventListener("click", function () {
         close();
-        // 让浏览器原生接管:新窗口直接把 /fetch 下载流当文件处理(Chrome 系会弹另存为/进下载栏)
-        try { window.open("/__dsh_web_open__/fetch?url=" + encodeURIComponent(url), "_blank"); } catch (e) {}
+        // 浏览器原生下载:临时 <a download href=fetch流> 点击 → Chromium 弹"另存为"/进浏览器下载栏
+        // (比 window.open 可靠——后者在部分 webview/拦截环境会静默吞掉,表现为"点完没反应直接消失")
+        downloadViaBrowser(url);
       });
       bCancel.addEventListener("click", close);
       modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
+    }
+
+    // 让浏览器原生下载流(可弹另存为/进浏览器下载栏)
+    function downloadViaBrowser(url) {
+      try {
+        var a = document.createElement("a");
+        a.href = "/__dsh_web_open__/fetch?url=" + encodeURIComponent(url);
+        a.style.display = "none";
+        a.download = "";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 800);
+      } catch (e) {
+        try { window.open("/__dsh_web_open__/fetch?url=" + encodeURIComponent(url), "_blank"); } catch (e2) {}
+      }
     }
 
     function startDownload(url, name0) {
