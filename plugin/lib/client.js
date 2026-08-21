@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
     var I18N = {
       zh: {
         newTab: "新建标签", back: "后退", fwd: "前进", reload: "刷新/停止", settings: "设置", download: "下载", external: "在系统浏览器打开",
-        history: "历史", bookmark: "收藏",
+        history: "历史", bookmark: "收藏", closeWin: "关闭浏览器窗口",
         urlPlaceholder: "输入网址或搜索词, 回车打开",
         settingsTitle: "浏览器设置", langLabel: "界面语言", langAuto: "跟随系统", engineLabel: "默认搜索引擎(地址栏搜索用)", dingLabel: "下载完成提示音", dingB: "柔和叮咚", dingA: "清亮双音", closePanel: "关闭", webNote: "Web 模式说明: 下载保存位置由浏览器决定; 暂停后从断点续传(需站点支持 Range); Ctrl+滚轮缩放页面。快捷键: Alt+Q 聚焦地址栏 · Ctrl+T 新标签 · Ctrl+W 关闭标签 · Ctrl+Shift+T 恢复关闭的标签(窗口打开时生效)。",
         histTitle: "历史记录", histEmpty: "暂无历史记录", histClear: "清空历史", histImport: "导入旧版数据", histImported: "已导入",
@@ -46,7 +46,7 @@ window.__ModuleLoader__.load({
       },
       en: {
         newTab: "New tab", back: "Back", fwd: "Forward", reload: "Reload/Stop", settings: "Settings", download: "Downloads", external: "Open in system browser",
-        history: "History", bookmark: "Bookmark",
+        history: "History", bookmark: "Bookmark", closeWin: "Close browser window",
         urlPlaceholder: "Enter URL or search, press Enter",
         settingsTitle: "Browser Settings", langLabel: "Language", langAuto: "Follow system", engineLabel: "Default search engine (address bar)", dingLabel: "Download chime", dingB: "Soft ding-dong", dingA: "Bright chime", closePanel: "Close", webNote: "Web mode notes: save location decided by the browser; pause resumes from breakpoint (needs server Range support); Ctrl+wheel zooms the page. Shortcuts (while window is open): Alt+Q focus address bar, Ctrl+T new tab, Ctrl+W close tab, Ctrl+Shift+T reopen closed tab.",
         histTitle: "History", histEmpty: "No history yet", histClear: "Clear history", histImport: "Import legacy data", histImported: "Imported",
@@ -248,6 +248,12 @@ window.__ModuleLoader__.load({
         ".dsh-webbox-nav .nb:hover:not(:disabled){background:#313244}" +
         ".dsh-webbox-nav .nb:disabled{opacity:.35;cursor:default}" +
         ".dsh-webbox-nav .nb.danger:hover{background:#dc2626}" +
+        ".dsh-webbox-close{flex:0 0 auto;width:26px;height:24px;border-radius:6px;background:transparent;" +
+        "border:1px solid #45475a;color:#cdd6f4;font-size:14px;cursor:pointer;line-height:1}" +
+        ".dsh-webbox-close:hover{background:#dc2626;border-color:#dc2626;color:#fff}" +
+        ".dsh-webbox-toast{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:10;" +
+        "background:#313244;color:#e5e7eb;border:1px solid #45475a;border-radius:8px;padding:6px 14px;" +
+        "font-size:12px;display:none;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.4);max-width:80%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}" +
         ".dsh-webbox-url{flex:1;min-width:60px;background:#11111b;border:1px solid #45475a;color:#cdd6f4;border-radius:6px;" +
         "height:26px;padding:0 10px;font-size:13px;outline:none}" +
         ".dsh-webbox-url:focus{border-color:#89b4fa}" +
@@ -338,6 +344,7 @@ window.__ModuleLoader__.load({
       var bar = el("div", { className: "dsh-webbox-bar" }, win);
       tabsWrap = el("div", { className: "dsh-webbox-tabs" }, bar);
       var newTabBtn = el("button", { className: "dsh-webbox-newtab", textContent: "+", title: T("newTab") }, bar);
+      var closeBtn = el("button", { className: "dsh-webbox-close", textContent: "\u00d7", title: T("closeWin") }, bar);
       // 导航行
       var nav = el("div", { className: "dsh-webbox-nav" }, win);
       backBtn = el("button", { className: "nb", textContent: "\u2190", title: T("back"), disabled: true }, nav);
@@ -351,12 +358,12 @@ window.__ModuleLoader__.load({
       dlBtn = el("button", { className: "nb", textContent: "\u2b07", title: T("download") }, dlWrap);
       el("span", { className: "cnt", textContent: "0" }, dlWrap);
       var extBtn = el("button", { className: "nb", textContent: "\u2197", title: T("external") }, nav);
-      el("button", { className: "nb danger", textContent: "\u00d7", title: T("closePanel") + "\u2715" }, nav);
       // 页面区
       bodyBox = el("div", { className: "dsh-webbox-body" }, win);
       var panels = el("div", { className: "dsh-webbox-panels" }, win);
       var dlPanel = el("div", { className: "dsh-webbox-panel", id: "dsh-webbox-dlpanel" }, panels);
       var setPanel = el("div", { className: "dsh-webbox-panel", id: "dsh-webbox-setpanel" }, panels);
+      var toast = el("div", { className: "dsh-webbox-toast", textContent: "" }, win);
       (document.body || document.documentElement).appendChild(win);
 
       // 标签行拖拽移动窗口(双击复位右下角停靠)
@@ -395,7 +402,7 @@ window.__ModuleLoader__.load({
       gearBtn.addEventListener("click", function () { togglePanel("settings"); });
       dlBtn.addEventListener("click", function () { togglePanel("downloads"); renderDownloads(); });
       extBtn.addEventListener("click", function () { var t = activeTab(); if (t && /^https?:\/\//i.test(t.url)) window.open(t.url, "_blank"); });
-      win.querySelector(".nb.danger").addEventListener("click", function () { win.hidden = true; clearSnapshot(); });
+      win.querySelector(".dsh-webbox-close").addEventListener("click", function () { win.hidden = true; clearSnapshot(); });
       // 地址栏
       urlInput.addEventListener("keydown", function (e) {
         if (e.key !== "Enter") return;
@@ -489,7 +496,10 @@ window.__ModuleLoader__.load({
       histBtn.addEventListener("click", function () { loadHist(); renderHistory(); togglePanel("history"); });
       favBtn.addEventListener("click", function () {
         var t = activeTab();
-        if (!t || /^data:/i.test(t.url)) return;
+        if (!t || /^data:/i.test(t.url)) {
+          flashMsg(T("dlTitle") === T("dlTitle") ? T("bkAdd") : T("bkAdd")); // 起始页不可收藏,给个提示
+          return;
+        }
         toggleFav(t.url, t.title || "");
       });
       langSel.addEventListener("change", function () { writeSettings({ lang: langSel.value }); });
@@ -498,8 +508,19 @@ window.__ModuleLoader__.load({
       var setBtns = el("div", { className: "pc", style: "margin-top:16px" }, setBox);
       var setClearHist = el("button", { textContent: T("histClear") }, setBtns);
       var setClearBk = el("button", { textContent: T("bkClear") }, setBtns);
-      setClearHist.addEventListener("click", function () { history = []; saveHist(); });
-      setClearBk.addEventListener("click", function () { bookmarks = []; saveBk(); updateFavBtn(); });
+      setClearHist.addEventListener("click", function () {
+        history = [];
+        saveHist();
+        renderHistory(); // 历史面板开着时立即清空显示
+        flashMsg(T("histClear"));
+      });
+      setClearBk.addEventListener("click", function () {
+        bookmarks = [];
+        saveBk();
+        renderBookmarks(); // 收藏面板开着时立即清空显示
+        updateFavBtn();
+        flashMsg(T("bkClear"));
+      });
       // Ctrl+滚轮缩放当前页(替代旧版 shift+滚轮;iframe 跨源无法注入脚本)
       bodyBox.addEventListener("wheel", function (e) {
         if (!e.ctrlKey) return;
@@ -534,8 +555,10 @@ window.__ModuleLoader__.load({
       if (newTabBtn) newTabBtn.title = T("newTab");
       backBtn.title = T("back"); fwdBtn.title = T("fwd"); reloadBtn.title = T("reload");
       var navBtns = win.querySelectorAll(".dsh-webbox-nav .nb");
-      var titles = [null, null, null, T("history"), T("bkAdd"), T("settings"), T("download"), T("external"), T("closePanel") + "\u2715"];
+      var titles = [null, null, null, T("history"), T("bkAdd"), T("settings"), T("download"), T("external")];
       for (var i = 0; i < navBtns.length && i < titles.length; i++) if (titles[i]) navBtns[i].title = titles[i];
+      var closeB = win.querySelector(".dsh-webbox-close");
+      if (closeB) closeB.title = T("closeWin");
       var h3s = win.querySelectorAll(".dsh-webbox-panel h3");
       if (h3s[0]) h3s[0].textContent = T("dlTitle");
       if (h3s[1]) h3s[1].textContent = T("settingsTitle");
@@ -1030,11 +1053,13 @@ window.__ModuleLoader__.load({
     }
     var flashTimer = null;
     function flashMsg(m) {
-      var dlPanel = win.querySelector("#dsh-webbox-dlpanel");
-      var h = dlPanel.querySelector("h3");
-      h.textContent = T("dlTitle") + " \u2014 " + m;
+      if (!win) return;
+      var tEl = win.querySelector(".dsh-webbox-toast");
+      if (!tEl) return;
+      tEl.textContent = m;
+      tEl.style.display = "block";
       if (flashTimer) clearTimeout(flashTimer);
-      flashTimer = setTimeout(function () { h.textContent = T("dlTitle"); }, 1500);
+      flashTimer = setTimeout(function () { tEl.style.display = "none"; }, 1500);
     }
     function renderDownloads() {
       if (!win) return;
