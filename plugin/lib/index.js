@@ -75,6 +75,73 @@ function notifyGui(payload) {
   }
 }
 
+// ---------- web 模式内嵌浮窗:页面代理(2026-08-22,绕开 X-Frame-Options/CSP frame-ancestors) ----------
+// GUI 内嵌窗口用 iframe 展示目标页;iframe 直载会被 XFO 拦截,故经本路由服务端拉取:
+// 剥掉 XFO/CSP 响应头 + 注入 <base> 让子资源按原站解析 + 把导航型链接(a/form/iframe/meta refresh)
+// 重写回代理,保证窗口内点击继续走代理(否则跳转原站后 XFO 白屏)。
+const PROXY_BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+function proxyUrlFor(proxyBase, target) {
+  return proxyBase + '/__dsh_web_open__/proxy?url=' + encodeURIComponent(target);
+}
+
+// 重写 HTML:注入 base + 导航链接改走代理
+function rewriteHtmlForProxy(html, finalUrl, proxyBase) {
+  const escUrl = finalUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const baseTag = '<base href="' + escUrl + '">';
+  let out = /<head[^>]*>/i.test(html)
+    ? html.replace(/(<head[^>]*>)/i, '$1' + baseTag)
+    : '<head>' + baseTag + '</head>' + html;
+  // a/area/form/iframe/frame 的导航属性 → 代理(跳过 #/javascript:/data: 等)
+  out = out.replace(/<(a|area|form|iframe|frame)\b([^>]*)>/gi, (tag, tname, attrs) => {
+    if (!/(\s(href|src|action)\s*=)/i.test(attrs)) return tag;
+    const newAttrs = attrs.replace(
+      /(\s(href|src|action)\s*=\s*)("([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi,
+      (m, pre, _attr, _q, dq, sq, bare) => {
+        let v = dq !== undefined ? dq : sq !== undefined ? sq : bare || '';
+        v = v.trim();
+        if (!v || v[0] === '#' || /^(javascript|data|mailto|tel|about|blob|file):/i.test(v)) return m;
+        let abs;
+        try { abs = new URL(v, finalUrl).href; } catch { return m; }
+        if (!/^https?:\/\//i.test(abs)) return m;
+        const nv = proxyUrlFor(proxyBase, abs);
+        if (dq !== undefined) return pre + '"' + nv + '"';
+        if (sq !== undefined) return pre + "'" + nv + "'";
+        return pre + '"' + nv + '"';
+      }
+    );
+    return '<' + tname + newAttrs + '>';
+  });
+  // meta refresh url= → 代理
+  out = out.replace(/(<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>)/gi, (m, tag) => {
+    const mm = tag.match(/url\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/i);
+    if (!mm) return m;
+    const v = mm[2] !== undefined ? mm[2] : mm[3] !== undefined ? mm[3] : mm[4] || '';
+    try {
+      const abs = new URL(v, finalUrl).href;
+      if (/^https?:\/\//i.test(abs)) {
+        return tag.replace(/url\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/i, 'url=' + proxyUrlFor(proxyBase, abs));
+      }
+    } catch {}
+    return m;
+  });
+  return out;
+}
+
+// 非 HTML 内容(下载类):返回一个引导页,让客户端右上角"系统浏览器"按钮接管
+function nonHtmlNotice(target, contentType) {
+  const h = encodeURIComponent(target);
+  return (
+    '<!doctype html><html><head><meta charset="utf-8"><title>内容类型不支持内嵌</title></head>' +
+    '<body style="font:14px/1.7 system-ui,sans-serif;background:#1f2937;color:#e5e7eb;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">' +
+    '<div style="text-align:center;max-width:70vw;">' +
+    '<p>该内容类型(<b>' + String(contentType || 'unknown').replace(/</g, '&lt;') + '</b>)不适合窗口内嵌。</p>' +
+    '<p><a href="' + h + '" target="_blank" rel="noopener" style="color:#7dd3fc;">在系统浏览器打开 ↗</a></p>' +
+    '</div></body></html>'
+  );
+}
+
 // web 模式没有内嵌窗口:移交系统默认浏览器(win32 cmd start / darwin open / linux xdg-open)
 function openSystemBrowser(url) {
   try {
@@ -301,7 +368,7 @@ export function apply(ctx) {
             if (!wres.ok || !wj || !wj.ok) throw err;
             return wj.mode === 'system'
               ? 'Opened in system default browser: ' + url
-              : 'Opened in DSH web GUI: ' + url;
+              : 'Opened in DSH embedded browser window: ' + url;
           }
         },
       })
@@ -383,6 +450,57 @@ export function apply(ctx) {
             sendJson(res, 200, { ok: true, mode: 'system' });
           }
         } catch (e) { sendJson(res, 500, { ok: false, error: String((e && e.message) || e) }); }
+      });
+      addRoute('/__dsh_web_open__/proxy', async (req, res) => {
+        try {
+          if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*' }); res.end(); return; }
+          if (req.method !== 'GET') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
+          const u = new URL(req.url || '/', 'http://127.0.0.1');
+          const target = cleanTarget(u.searchParams.get('url') || '');
+          if (!URL_RE.test(target)) { sendJson(res, 400, { ok: false, error: 'bad url' }); return; }
+          const fres = await fetch(target, {
+            redirect: 'follow',
+            signal: AbortSignal.timeout(25_000),
+            headers: {
+              'user-agent': PROXY_BROWSER_UA,
+              'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            },
+          });
+          const finalUrl = fres.url || target;
+          const ct = String(fres.headers.get('content-type') || '').toLowerCase();
+          if (!fres.ok) {
+            sendJson(res, 502, { ok: false, error: 'upstream HTTP ' + fres.status, url: finalUrl });
+            return;
+          }
+          if (/text\/html|application\/xhtml|text\/plain/.test(ct)) {
+            const html = await fres.text();
+            const out = rewriteHtmlForProxy(html, finalUrl, 'http://127.0.0.1:' + ctx.webServer.port);
+            res.writeHead(200, {
+              'content-type': ct.includes('text/plain') ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8',
+              'cache-control': 'no-store',
+              'x-dsh-proxied-url': finalUrl,
+              'access-control-allow-origin': '*',
+            });
+            res.end(out);
+          } else {
+            // 非 HTML(下载类):引导页,由客户端右上角按钮接管系统浏览器
+            const notice = nonHtmlNotice(finalUrl, fres.headers.get('content-type') || ct);
+            res.writeHead(200, {
+              'content-type': 'text/html; charset=utf-8',
+              'cache-control': 'no-store',
+              'x-dsh-proxied-url': finalUrl,
+            });
+            res.end(notice);
+          }
+        } catch (e) {
+          const msg = String((e && e.message) || e);
+          if (/abort|timeout|Timed out/i.test(msg)) {
+            sendJson(res, 504, { ok: false, error: 'upstream timeout' });
+          } else {
+            sendJson(res, 502, { ok: false, error: msg });
+          }
+        }
       });
       addRoute('/__dsh_web_open__/events', (req, res) => {
         try { handleSseEvents(req, res); } catch (e) { try { res.destroy(); } catch {} }
