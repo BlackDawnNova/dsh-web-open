@@ -29,13 +29,16 @@ window.__ModuleLoader__.load({
       return ep + suffix;
     }
 
+    // 客户端版本号(随每次发布递增,设置面板里显示,用来确认页面是否加载到最新 bundle)
+    var WEBBOX_VER = "20260823-a";
+
     // ---------- i18n(移植自旧版 WEBBOX_T,语言跟随设置,auto=浏览器语言) ----------
     var I18N = {
       zh: {
         newTab: "新建标签", back: "后退", fwd: "前进", reload: "刷新/停止", settings: "设置", download: "下载", external: "在系统浏览器打开",
         history: "历史", bookmark: "收藏", closeWin: "关闭浏览器窗口",
         urlPlaceholder: "输入网址或搜索词, 回车打开",
-        settingsTitle: "浏览器设置", langLabel: "界面语言", langAuto: "跟随系统", engineLabel: "默认搜索引擎(地址栏搜索用)", dingLabel: "下载完成提示音", dingB: "柔和叮咚", dingA: "清亮双音", closePanel: "关闭", webNote: "Web 模式说明: 下载保存位置由浏览器决定; 暂停后从断点续传(需站点支持 Range); Ctrl+滚轮缩放页面。快捷键: Alt+Q 聚焦地址栏 · Ctrl+T 新标签 · Ctrl+W 关闭标签 · Ctrl+Shift+T 恢复关闭的标签(窗口打开时生效)。",
+        settingsTitle: "浏览器设置", langLabel: "界面语言", langAuto: "跟随系统", engineLabel: "默认搜索引擎(地址栏搜索用)", dingLabel: "下载完成提示音", dingB: "柔和叮咚", dingA: "清亮双音", closePanel: "关闭", verLabel: "版本", dlGoBrowser: "已交给浏览器下载：若没弹「另存为」，文件已存进浏览器的下载文件夹（可在浏览器设置打开“下载前询问保存位置”）", webNote: "Web 模式说明: 下载保存位置由浏览器决定; 暂停后从断点续传(需站点支持 Range); Ctrl+滚轮缩放页面。快捷键: Alt+Q 聚焦地址栏 · Ctrl+T 新标签 · Ctrl+W 关闭标签 · Ctrl+Shift+T 恢复关闭的标签(窗口打开时生效)。",
         histTitle: "历史记录", histEmpty: "暂无历史记录", histClear: "清空历史", histImport: "导入旧版数据", histImported: "已导入",
         favAdd: "收藏到书签", favDel: "取消收藏", extFail: "系统浏览器打开失败",
         bkTitle: "收藏夹", bkEmpty: "暂无收藏", bkClear: "清空收藏", bkAdd: "收藏本页", bkRemove: "取消收藏", bkAdded: "已收藏", bkRemoved: "已取消收藏",
@@ -50,7 +53,7 @@ window.__ModuleLoader__.load({
         newTab: "New tab", back: "Back", fwd: "Forward", reload: "Reload/Stop", settings: "Settings", download: "Downloads", external: "Open in system browser",
         history: "History", bookmark: "Bookmark", closeWin: "Close browser window",
         urlPlaceholder: "Enter URL or search, press Enter",
-        settingsTitle: "Browser Settings", langLabel: "Language", langAuto: "Follow system", engineLabel: "Default search engine (address bar)", dingLabel: "Download chime", dingB: "Soft ding-dong", dingA: "Bright chime", closePanel: "Close", webNote: "Web mode notes: save location decided by the browser; pause resumes from breakpoint (needs server Range support); Ctrl+wheel zooms the page. Shortcuts (while window is open): Alt+Q focus address bar, Ctrl+T new tab, Ctrl+W close tab, Ctrl+Shift+T reopen closed tab.",
+        settingsTitle: "Browser Settings", langLabel: "Language", langAuto: "Follow system", engineLabel: "Default search engine (address bar)", dingLabel: "Download chime", dingB: "Soft ding-dong", dingA: "Bright chime", closePanel: "Close", verLabel: "Version", dlGoBrowser: "Handed to the browser downloader: if no Save dialog appeared, the file is already in your browser's download folder (you can enable “Ask where to save each file” in browser settings).", webNote: "Web mode notes: save location decided by the browser; pause resumes from breakpoint (needs server Range support); Ctrl+wheel zooms the page. Shortcuts (while window is open): Alt+Q focus address bar, Ctrl+T new tab, Ctrl+W close tab, Ctrl+Shift+T reopen closed tab.",
         histTitle: "History", histEmpty: "No history yet", histClear: "Clear history", histImport: "Import legacy data", histImported: "Imported",
         favAdd: "Add bookmark", favDel: "Remove bookmark", extFail: "External open failed",
         bkTitle: "Bookmarks", bkEmpty: "No bookmarks yet", bkClear: "Clear bookmarks", bkAdd: "Bookmark this page", bkRemove: "Remove bookmark", bkAdded: "Bookmarked", bkRemoved: "Bookmark removed",
@@ -494,6 +497,7 @@ window.__ModuleLoader__.load({
       dingSel.innerHTML = "<option value='b'>" + T("dingB") + "</option><option value='a'>" + T("dingA") + "</option>";
       dingSel.value = st.dingSound;
       el("div", { className: "note", textContent: T("webNote") }, setBox);
+      el("div", { className: "note", textContent: T("verLabel") + " " + WEBBOX_VER, style: "color:#89b4fa" }, setBox);
       // 历史面板(内含 历史/收藏 双 tab 切换;清空历史不动收藏,收藏在收藏tab看)
       histPanel = el("div", { className: "dsh-webbox-panel", id: "dsh-webbox-histpanel" }, panels);
       panelHead(histPanel, T("histTitle"));
@@ -1037,9 +1041,10 @@ window.__ModuleLoader__.load({
       bSa.addEventListener("click", function () {
         close();
         // 复刻旧版"新标签页选择目录":当前窗口开新标签导航到下载流,交给浏览器下载机制。
-        // window.open 会被弹窗拦截吞掉;a.download 在部分容器(WebView/设静默)直接静默下载,
-        // 标签页导航到下载响应则必然触发浏览器的下载处理(弹另存为/进下载栏),一定有反馈。
+        // window.open 会被拦截;a.download 在部分容器(WebView/静默设置)无声下载。
+        // 新标签 + toast 强反馈:总能看到结果(弹另存为/下载栏/或已存下载文件夹)。
         openTab("/__dsh_web_open__/fetch?url=" + encodeURIComponent(url), name || guessName(url));
+        setTimeout(function () { flashMsg(T("dlGoBrowser")); }, 150);
       });
       bCancel.addEventListener("click", close);
       modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
