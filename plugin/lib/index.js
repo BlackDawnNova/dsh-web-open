@@ -127,6 +127,18 @@ function rewriteHtmlForProxy(html, finalUrl, proxyBase) {
     } catch {}
     return m;
   });
+  // 注入下载拦截脚本:iframe 内点击下载链接的事件不会冒泡到主文档的 click 捕获层,
+  // 必须由代理页自己捕获并 postMessage 回主文档(再走确认框+下载面板)。
+  // 还原原始 URL:改写后的 href 形如 <proxyBase>/__dsh_web_open__/proxy?url=<enc>
+  const dlScript =
+    "<script>(function(){function isDl(h){return /\\.(zip|rar|7z|tar|tgz|gz|bz2|xz|pdf|mp3|mp4|mkv|avi|mov|exe|msi|apk|iso|torrent|dmg)([?#]|$)/i.test(h);}" +
+    "document.addEventListener('click',function(e){var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(!a)return;" +
+    "var h=a.href||'';if(!/^https?:\\/\\//i.test(h)||!isDl(h))return;var raw=h,name=(a.textContent||'').trim();" +
+    "try{var u=new URL(h);var q=u.searchParams.get('url');if(q){raw=decodeURIComponent(q);if(!name){var p=u.pathname.split('/').pop();if(p)name=decodeURIComponent(p);}}}catch(e){}" +
+    "e.preventDefault();e.stopPropagation();try{parent.postMessage({__dshWebbox:1,type:'download',url:raw,name:name||''},'*');}catch(e){}} ,true);})();" +
+    "</script>";
+  if (/<\/body>/i.test(out)) out = out.replace(/<\/body>/i, dlScript + '</body>');
+  else out += dlScript;
   return out;
 }
 
@@ -175,15 +187,18 @@ function proxyErrorPage(target, msg, zh, proxyBase) {
   );
 }
 
-// web 模式没有内嵌窗口:移交系统默认浏览器(win32 cmd start / darwin open / linux xdg-open)
+// 用系统默认浏览器打开 URL。win32 用 rundll32 url.dll,FileProtocolHandler:
+// 不经过 cmd.exe,URL 里的 & / 引号不会被当命令分隔符/cmd 元字符解析(旧 cmd /c start 写法有这坑)
 function openSystemBrowser(url) {
   try {
     const isWin = process.platform === 'win32';
+    const args = isWin ? ['url.dll,FileProtocolHandler', String(url)] : [String(url)];
     const child = spawn(
-      isWin ? (process.env.ComSpec || 'cmd.exe') : (process.platform === 'darwin' ? 'open' : 'xdg-open'),
-      isWin ? ['/c', 'start', '""', '"' + url + '"'] : [url],
+      isWin ? 'rundll32.exe' : (process.platform === 'darwin' ? 'open' : 'xdg-open'),
+      args,
       { detached: true, stdio: 'ignore', windowsHide: true }
     );
+    child.on('error', () => {});
     child.unref();
   } catch {}
 }

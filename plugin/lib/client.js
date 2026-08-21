@@ -37,6 +37,7 @@ window.__ModuleLoader__.load({
         urlPlaceholder: "输入网址或搜索词, 回车打开",
         settingsTitle: "浏览器设置", langLabel: "界面语言", langAuto: "跟随系统", engineLabel: "默认搜索引擎(地址栏搜索用)", dingLabel: "下载完成提示音", dingB: "柔和叮咚", dingA: "清亮双音", closePanel: "关闭", webNote: "Web 模式说明: 下载保存位置由浏览器决定; 暂停后从断点续传(需站点支持 Range); Ctrl+滚轮缩放页面。快捷键: Alt+Q 聚焦地址栏 · Ctrl+T 新标签 · Ctrl+W 关闭标签 · Ctrl+Shift+T 恢复关闭的标签(窗口打开时生效)。",
         histTitle: "历史记录", histEmpty: "暂无历史记录", histClear: "清空历史", histImport: "导入旧版数据", histImported: "已导入",
+        favAdd: "收藏到书签", favDel: "取消收藏", extFail: "系统浏览器打开失败",
         bkTitle: "收藏夹", bkEmpty: "暂无收藏", bkClear: "清空收藏", bkAdd: "收藏本页", bkRemove: "取消收藏", bkAdded: "已收藏", bkRemoved: "已取消收藏",
         dlTitle: "下载", dlRefresh: "刷新", dlClear: "清空已完成", dlEmpty: "暂无下载记录", st_downloading: "下载中", st_completed: "完成", st_interrupted: "失败", st_cancelled: "已取消",
         dlPause: "暂停", dlResume: "继续", dlCancel: "取消", dlRedo: "重新下载", dlCopy: "复制链接", dlSize: "大小", dlSpeed: "速度",
@@ -51,6 +52,7 @@ window.__ModuleLoader__.load({
         urlPlaceholder: "Enter URL or search, press Enter",
         settingsTitle: "Browser Settings", langLabel: "Language", langAuto: "Follow system", engineLabel: "Default search engine (address bar)", dingLabel: "Download chime", dingB: "Soft ding-dong", dingA: "Bright chime", closePanel: "Close", webNote: "Web mode notes: save location decided by the browser; pause resumes from breakpoint (needs server Range support); Ctrl+wheel zooms the page. Shortcuts (while window is open): Alt+Q focus address bar, Ctrl+T new tab, Ctrl+W close tab, Ctrl+Shift+T reopen closed tab.",
         histTitle: "History", histEmpty: "No history yet", histClear: "Clear history", histImport: "Import legacy data", histImported: "Imported",
+        favAdd: "Add bookmark", favDel: "Remove bookmark", extFail: "External open failed",
         bkTitle: "Bookmarks", bkEmpty: "No bookmarks yet", bkClear: "Clear bookmarks", bkAdd: "Bookmark this page", bkRemove: "Remove bookmark", bkAdded: "Bookmarked", bkRemoved: "Bookmark removed",
         dlTitle: "Downloads", dlRefresh: "Refresh", dlClear: "Clear completed", dlEmpty: "No downloads yet", st_downloading: "Downloading", st_completed: "Completed", st_interrupted: "Failed", st_cancelled: "Cancelled",
         dlPause: "Pause", dlResume: "Resume", dlCancel: "Cancel", dlRedo: "Redownload", dlCopy: "Copy link", dlSize: "Size", dlSpeed: "Speed",
@@ -297,6 +299,8 @@ window.__ModuleLoader__.load({
         ".dsh-webbox-dl .sz{color:#6c7086;font-size:11px;flex:none}" +
         ".dsh-webbox-dl .ctl{background:transparent;border:none;color:#a6adc8;font-size:12px;cursor:pointer;padding:2px 4px;flex:none}" +
         ".dsh-webbox-dl .ctl:hover{color:#fff}" +
+        ".dsh-webbox-dl .fav{background:transparent;border:none;color:#f9a825;font-size:13px;cursor:pointer;padding:2px 4px;flex:none}" +
+        ".dsh-webbox-dl .fav:hover{color:#ffd54f}" +
         ".dsh-webbox-dl .empty{color:#6c7086;padding:16px 0;text-align:center}" +
         ".dsh-webbox-set{padding:0 14px 14px;overflow-y:auto}" +
         ".dsh-webbox-set label{display:block;color:#a6adc8;margin:14px 0 6px;font-size:12px}" +
@@ -421,9 +425,18 @@ window.__ModuleLoader__.load({
       extBtn.addEventListener("click", function () {
         var t = activeTab();
         if (!t || !/^https?:\/\//i.test(t.url)) return;
-        // 弹窗拦截环境里 window.open 不可靠 → 服务端内核直接调系统默认浏览器(cmd start)
+        // 弹窗拦截环境里 window.open 不可靠 → 服务端内核直接调系统默认浏览器(rundll32)
         fetch("/__dsh_web_open__/external?url=" + encodeURIComponent(t.url), { mode: "cors" })
-          .catch(function () { try { window.open(t.url, "_blank"); } catch (e) {} });
+          .then(function (r) {
+            if (!r.ok) {
+              flashMsg(T("extFail"));
+              try { window.open(t.url, "_blank"); } catch (e2) {}
+            }
+          })
+          .catch(function () {
+            flashMsg(T("extFail"));
+            try { window.open(t.url, "_blank"); } catch (e2) {}
+          });
       });
       win.querySelector(".dsh-webbox-close").addEventListener("click", function () { win.hidden = true; clearSnapshot(); });
       // 地址栏
@@ -495,13 +508,20 @@ window.__ModuleLoader__.load({
         var r = e.target && e.target.closest ? e.target.closest("[data-h]") : null;
         if (!r) return;
         e.stopPropagation();
+        var hu = r.getAttribute("data-h");
+        if (r.hasAttribute("data-f")) {
+          var favTitle = "";
+          for (var fi = 0; fi < history.length; fi++) if (history[fi].url === hu) { favTitle = history[fi].title || ""; break; }
+          toggleFav(hu, favTitle);
+          renderHistory();
+          return;
+        }
         if (r.classList.contains("ctl")) {
-          var hu = r.getAttribute("data-h");
           for (var i = 0; i < history.length; i++) if (history[i].url === hu) { history.splice(i, 1); break; }
           saveHist();
           renderHistory();
         } else {
-          openTab(r.getAttribute("data-h"), "");
+          openTab(hu, "");
         }
       });
       bkList.addEventListener("click", function (e) {
@@ -557,9 +577,15 @@ window.__ModuleLoader__.load({
         t.zoom = z;
         t.frame.style.zoom = String(z);
       }, { passive: false });
-      // 起始页 postMessage → 导航
+      // 起始页 postMessage → 导航;代理页 postMessage → 下载拦截(confirmDownload)
       window.addEventListener("message", function (e) {
-        if (!e.data || e.data.type !== "nav" || typeof e.data.url !== "string") return;
+        if (!e.data || typeof e.data !== "object") return;
+        if (e.data.__dshWebbox === 1 && e.data.type === "download") {
+          var du = typeof e.data.url === "string" ? e.data.url : "";
+          if (/^https?:\/\//i.test(du)) confirmDownload(du, typeof e.data.name === "string" ? e.data.name : "");
+          return;
+        }
+        if (e.data.type !== "nav" || typeof e.data.url !== "string") return;
         for (var i = 0; i < tabs.length; i++) {
           if (tabs[i].frame && tabs[i].frame.contentWindow === e.source) {
             var u = resolveInput(e.data.url);
@@ -813,13 +839,17 @@ window.__ModuleLoader__.load({
         histList.innerHTML = "<div class='empty'>" + T("histEmpty") + "</div>";
         return;
       }
+      loadBk(); // ★ 状态用
       var html = "";
       for (var i = 0; i < Math.min(history.length, 100); i++) {
         var h = history[i];
+        var f = false;
+        for (var fi = 0; fi < bookmarks.length; fi++) if (bookmarks[fi].url === h.url) { f = true; break; }
         html +=
           "<div class='row'><span class='nm2' data-h='" + String(h.url).replace(/'/g, "&#39;") + "'>" +
           (h.title ? String(h.title).replace(/</g, "&lt;").slice(0, 60) : String(h.url).replace(/</g, "&lt;").slice(0, 60)) +
           "</span><span class='sz'>" + fmtTime(h.t) + "</span>" +
+          "<button class='fav' data-h='" + String(h.url).replace(/'/g, "&#39;") + "' data-f='1' title='" + (f ? T("favDel") : T("favAdd")) + "'>" + (f ? "\u2605" : "\u2606") + "</button>" +
           "<button class='ctl' data-h='" + String(h.url).replace(/'/g, "&#39;") + "' title='" + T("dlCancel") + "'>\u2715</button></div>";
       }
       histList.innerHTML = html;
