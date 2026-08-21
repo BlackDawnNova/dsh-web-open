@@ -13,11 +13,11 @@ import fs from 'node:fs';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import os from 'node:os';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export const name = 'dsh-web-open';
-export const inject = ['tools'];
+export const inject = ['tools', 'webServer'];
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS = path.join(__dirname, '..', 'assets');
@@ -33,6 +33,123 @@ const TEXT_OUTPUT = {
   schema: { type: 'string' },
   render: (_args, value) => [{ type: 'text', text: String(value) }],
 };
+
+// ---------- web 模式(新 DSH Web 架构:无 Electron main.js 补丁) ----------
+// DSH 重构后:同一主端口注册 webServer 路由,替代 13777 固定端口补丁服务;
+// GUI 前端经 SSE(/__dsh_web_open__/events)接收推送;无 BrowserWindow 可弹,
+// 弹窗语义降级为系统默认浏览器移交(与 dsh-web-app 的 open 包同语义)。
+const CLEAN_URL_RE = /https?:\/\/[^\s\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]+/;
+const sseClients = new Set();
+let sseHeartbeat = null;
+
+function myVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+// URL 清洗:去掉中文注释/多余文字(与补丁侧一致)
+function cleanTarget(raw) {
+  const m = String(raw || '').match(CLEAN_URL_RE);
+  return m ? m[0] : String(raw || '');
+}
+
+function sendJson(res, status, obj) {
+  try {
+    if (!res.headersSent) {
+      res.writeHead(status, {
+        'content-type': 'application/json; charset=utf-8',
+        'access-control-allow-origin': '*',
+      });
+    }
+    res.end(JSON.stringify(obj));
+  } catch {}
+}
+
+function notifyGui(payload) {
+  const data = 'data: ' + JSON.stringify(payload) + '\n\n';
+  for (const res of sseClients) {
+    try { res.write(data); } catch {}
+  }
+}
+
+// web 模式没有内嵌窗口:移交系统默认浏览器(win32 cmd start / darwin open / linux xdg-open)
+function openSystemBrowser(url) {
+  try {
+    const isWin = process.platform === 'win32';
+    const child = spawn(
+      isWin ? (process.env.ComSpec || 'cmd.exe') : (process.platform === 'darwin' ? 'open' : 'xdg-open'),
+      isWin ? ['/c', 'start', '""', '"' + url + '"'] : [url],
+      { detached: true, stdio: 'ignore', windowsHide: true }
+    );
+    child.unref();
+  } catch {}
+}
+
+// read_page 的 web 实现:Node fetch 抓取正文(替代隐藏 BrowserWindow)
+async function readPageTextWeb(pageUrl) {
+  try {
+    const res = await fetch(String(pageUrl), { redirect: 'follow', signal: AbortSignal.timeout(25_000) });
+    if (!res.ok) return { ok: false, error: 'load failed: HTTP ' + res.status };
+    const html = await res.text();
+    let title = ((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '')
+      .replace(/<[^>]+>/g, '').trim().slice(0, 200);
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+      .replace(/\s+/g, ' ').trim();
+    return { ok: true, url: String(pageUrl), title, text: text.slice(0, 8000) };
+  } catch (e) {
+    return { ok: false, error: 'load failed: ' + ((e && e.message) || e) };
+  }
+}
+
+// 更新检测的 web 实现:直接查 GitHub releases(替代补丁侧 checkForUpdate)
+async function checkUpdateWeb() {
+  try {
+    const res = await fetch('https://api.github.com/repos/BlackDawnNova/dsh-web-open/releases/latest', {
+      headers: { 'User-Agent': 'dsh-web-open', Accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return { ok: false, error: 'github http ' + res.status };
+    const r = await res.json();
+    return {
+      ok: true,
+      local: myVersion(),
+      latest: String(r.tag_name || '').replace(/^v/i, ''),
+      notes: String((r && r.body) || '').trim().slice(0, 2000),
+      url: String((r && r.html_url) || ''),
+    };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
+// SSE 推送:模型开页 → 服务端推给 GUI 客户端显示"在新标签打开"覆盖层
+function handleSseEvents(req, res) {
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache',
+    'connection': 'keep-alive',
+    'access-control-allow-origin': '*',
+  });
+  res.write(':ok\n\n');
+  sseClients.add(res);
+  req.on('close', () => {
+    sseClients.delete(res);
+  });
+  if (!sseHeartbeat) {
+    sseHeartbeat = setInterval(() => {
+      for (const r of sseClients) { try { r.write(':hb\n\n'); } catch {} }
+    }, 25_000);
+    sseHeartbeat.unref();
+  }
+}
 
 // ---------- 自动检测并重打 main.js 补丁(DSH 更新后恢复) ----------
 
@@ -121,7 +238,15 @@ export function apply(ctx) {
   // DSH 更新会清掉 resources/app 补丁 → 启动后延迟检测并自动重打
   setTimeout(ensurePatched, 8000);
   // 版本更新检测:触发 main.js 补丁侧检测(13777 端点;30 秒后,静默降级)
-  setTimeout(() => { try { fetch('http://127.0.0.1:13777/__dsh_check_update__', { method: 'GET' }).catch(() => {}); } catch {} }, 30000);
+  // 版本更新检测:Electron 走 13777 补丁端点;web 模式走自己注册的主端口路由(30 秒后,静默降级)
+  setTimeout(() => {
+    try {
+      const url = ctx.webServer
+        ? 'http://127.0.0.1:' + ctx.webServer.port + '/__dsh_check_update__'
+        : 'http://127.0.0.1:13777/__dsh_check_update__';
+      fetch(url, { method: 'GET' }).catch(() => {});
+    } catch {}
+  }, 30000);
 
   ctx.effect(() => {
     ctx.tools.register(
@@ -148,23 +273,36 @@ export function apply(ctx) {
           if (!URL_RE.test(url)) {
             throw new Error('open_url: only http(s) URLs are supported');
           }
-          const pf = portFile();
-          if (!fs.existsSync(pf)) {
-            throw new Error('open_url: port file missing - main.js patch not applied (re-run install.py after a DSH update, or wait for auto-repair)');
-          }
-          const port = fs.readFileSync(pf, 'utf8').trim();
-          if (!/^\d+$/.test(port)) {
-            throw new Error('open_url: invalid port file content: ' + port);
-          }
           const q = new URLSearchParams({ url });
           if (title !== '') q.set('title', title);
-          const res = await fetch('http://127.0.0.1:' + port + '/__dsh_web_open__?' + q.toString(), {
-            signal: AbortSignal.timeout(10_000),
-          });
-          if (!res.ok) {
-            throw new Error('open_url: main process rejected (HTTP ' + res.status + ')');
+          try {
+            const pf = portFile();
+            if (!fs.existsSync(pf)) {
+              throw new Error('open_url: port file missing - main.js patch not applied (re-run install.py after a DSH update, or wait for auto-repair)');
+            }
+            const port = fs.readFileSync(pf, 'utf8').trim();
+            if (!/^\d+$/.test(port)) {
+              throw new Error('open_url: invalid port file content: ' + port);
+            }
+            const res = await fetch('http://127.0.0.1:' + port + '/__dsh_web_open__?' + q.toString(), {
+              signal: AbortSignal.timeout(10_000),
+            });
+            if (!res.ok) {
+              throw new Error('open_url: main process rejected (HTTP ' + res.status + ')');
+            }
+            return 'Opened in DSH embedded browser: ' + url;
+          } catch (err) {
+            // Web 路径(新架构):无 Electron/13777 → 同一主端口 webServer 路由
+            if (!ctx.webServer) throw err;
+            const wres = await fetch('http://127.0.0.1:' + ctx.webServer.port + '/__dsh_web_open__?' + q.toString(), {
+              signal: AbortSignal.timeout(10_000),
+            });
+            const wj = await wres.json().catch(() => null);
+            if (!wres.ok || !wj || !wj.ok) throw err;
+            return wj.mode === 'system'
+              ? 'Opened in system default browser: ' + url
+              : 'Opened in DSH web GUI: ' + url;
           }
-          return 'Opened in DSH embedded browser: ' + url;
         },
       })
     );
@@ -181,17 +319,91 @@ export function apply(ctx) {
         execute: async (args) => {
           const url = typeof args.url === 'string' ? args.url : '';
           if (!URL_RE.test(url)) throw new Error('read_page: only http(s) URLs are supported');
-          const pf = portFile();
-          if (!fs.existsSync(pf)) throw new Error('read_page: port file missing - main.js patch not applied');
-          const port = fs.readFileSync(pf, 'utf8').trim();
-          const res = await fetch('http://127.0.0.1:' + port + '/__dsh_read_page__?url=' + encodeURIComponent(url), { signal: AbortSignal.timeout(25_000) });
-          const r = await res.json();
-          if (!r || !r.ok) throw new Error('read_page: ' + ((r && r.error) || 'failed'));
-          return '# ' + (r.title || url) + '\n\n' + (r.text || '(empty page)');
+          try {
+            const pf = portFile();
+            if (!fs.existsSync(pf)) throw new Error('read_page: port file missing - main.js patch not applied');
+            const port = fs.readFileSync(pf, 'utf8').trim();
+            const res = await fetch('http://127.0.0.1:' + port + '/__dsh_read_page__?url=' + encodeURIComponent(url), { signal: AbortSignal.timeout(25_000) });
+            const r = await res.json();
+            if (!r || !r.ok) throw new Error('read_page: ' + ((r && r.error) || 'failed'));
+            return '# ' + (r.title || url) + '\n\n' + (r.text || '(empty page)');
+          } catch (err) {
+            // Web 路径(新架构):同一主端口 webServer 路由
+            if (!ctx.webServer) throw err;
+            const wres = await fetch('http://127.0.0.1:' + ctx.webServer.port + '/__dsh_read_page__?url=' + encodeURIComponent(url), { signal: AbortSignal.timeout(25_000) });
+            const r = await wres.json().catch(() => null);
+            if (!wres.ok || !r || !r.ok) throw new Error('read_page: ' + ((r && r.error) || ('HTTP ' + wres.status)));
+            return '# ' + (r.title || url) + '\n\n' + (r.text || '(empty page)');
+          }
         },
       })
     );
   }, 'dsh-web-open.tool');
+
+  // web 模式(新 DSH Web 架构):同一主端口注册路由,替代 13777 补丁服务
+  if (ctx.webServer) {
+    ctx.effect(() => {
+      const disposers = [];
+      const addRoute = (path, handler) => {
+        try {
+          disposers.push(ctx.webServer.register({ kind: 'exact', path, handler }));
+        } catch (e) {
+          ctx.logger.warn('[dsh-web-open] webServer 路由注册失败 / route failed: ' + path + ' - ' + ((e && e.message) || e));
+        }
+      };
+      addRoute('/__dsh_web_open__', async (req, res) => {
+        try {
+          if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*' }); res.end(); return; }
+          if (req.method !== 'GET') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
+          const u = new URL(req.url || '/', 'http://127.0.0.1');
+          const target = cleanTarget(u.searchParams.get('url') || '');
+          if (!URL_RE.test(target)) { sendJson(res, 400, { ok: false, error: 'bad url' }); return; }
+          const title = u.searchParams.get('title') || '';
+          if (sseClients.size > 0) {
+            notifyGui({ type: 'page', url: target, title });
+            sendJson(res, 200, { ok: true, mode: 'web' });
+          } else {
+            openSystemBrowser(target);
+            sendJson(res, 200, { ok: true, mode: 'system' });
+          }
+        } catch (e) { sendJson(res, 500, { ok: false, error: String((e && e.message) || e) }); }
+      });
+      addRoute('/__dsh_web_open__/download', async (req, res) => {
+        try {
+          if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*' }); res.end(); return; }
+          if (req.method !== 'GET') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
+          const u = new URL(req.url || '/', 'http://127.0.0.1');
+          const target = cleanTarget(u.searchParams.get('url') || '');
+          if (!URL_RE.test(target)) { sendJson(res, 400, { ok: false, error: 'bad url' }); return; }
+          if (sseClients.size > 0) {
+            notifyGui({ type: 'download', url: target, title: u.searchParams.get('title') || '' });
+            sendJson(res, 200, { ok: true, mode: 'web' });
+          } else {
+            openSystemBrowser(target);
+            sendJson(res, 200, { ok: true, mode: 'system' });
+          }
+        } catch (e) { sendJson(res, 500, { ok: false, error: String((e && e.message) || e) }); }
+      });
+      addRoute('/__dsh_web_open__/events', (req, res) => {
+        try { handleSseEvents(req, res); } catch (e) { try { res.destroy(); } catch {} }
+      });
+      addRoute('/__dsh_read_page__', async (req, res) => {
+        try {
+          const u = new URL(req.url || '/', 'http://127.0.0.1');
+          const target = u.searchParams.get('url') || '';
+          if (!URL_RE.test(target)) { sendJson(res, 400, { ok: false, error: 'bad url' }); return; }
+          sendJson(res, 200, await readPageTextWeb(target));
+        } catch (e) { sendJson(res, 500, { ok: false, error: String((e && e.message) || e) }); }
+      });
+      addRoute('/__dsh_check_update__', async (_req, res) => {
+        try { sendJson(res, 200, await checkUpdateWeb()); } catch (e) { sendJson(res, 500, { ok: false, error: String((e && e.message) || e) }); }
+      });
+      return () => {
+        for (const d of disposers) { try { d(); } catch {} }
+        sseClients.clear();
+      };
+    }, 'dsh-web-open.web');
+  }
 
   // 通用工具可达性(2026-08-16):内置 agent preset(router-standard 等)首轮
   // core 过滤不含 open_url,这里在 assemble 后处理强制加回 —— 所有 agent
