@@ -266,7 +266,11 @@ window.__ModuleLoader__.load({
         ".dsh-webbox-panel{position:absolute;top:0;right:0;bottom:0;width:320px;background:#1e1e2e;z-index:5;" +
         "border-left:1px solid #313244;display:none;flex-direction:column;font-size:12px;color:#cdd6f4;box-shadow:-6px 0 20px rgba(0,0,0,.3)}" +
         ".dsh-webbox-panel.open{display:flex}" +
-        ".dsh-webbox-panel h3{margin:0;padding:12px 14px 8px;font-size:13px;font-weight:600;color:#a6adc8}" +
+        ".dsh-webbox-phead{display:flex;align-items:center;padding:10px 14px 8px}" +
+        ".dsh-webbox-phead h3{margin:0;flex:1 1 auto;min-width:0;font-size:13px;font-weight:600;color:#a6adc8;padding:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
+        ".dsh-webbox-pclose{flex:0 0 auto;width:22px;height:22px;border-radius:6px;background:transparent;border:none;" +
+        "color:#9ca3af;font-size:14px;cursor:pointer;line-height:1}" +
+        ".dsh-webbox-pclose:hover{background:#dc2626;color:#fff}" +
         ".dsh-webbox-panel .pc{margin:0 14px 10px;display:flex;gap:6px;align-items:center}" +
         ".dsh-webbox-panel .pc button{background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:6px;" +
         "padding:4px 10px;font-size:11px;cursor:pointer}" +
@@ -414,22 +418,28 @@ window.__ModuleLoader__.load({
         if (t) navTo(t, u); else openTab(u, "");
         urlInput.value = "";
       });
-      // 下载面板头部
-      el("h3", { textContent: T("dlTitle") }, dlPanel);
+      // 面板头部工具:标题 + 右上角 × 关闭
+      function panelHead(panel, title) {
+        var head = el("div", { className: "dsh-webbox-phead" }, panel);
+        el("h3", { textContent: title }, head);
+        var xb = el("button", { className: "dsh-webbox-pclose", textContent: "\u00d7", title: T("closePanel") }, head);
+        xb.addEventListener("click", function () { togglePanel(null); });
+        return head;
+      }
+      // 下载面板
+      panelHead(dlPanel, T("dlTitle"));
       var dlCtl = el("div", { className: "pc" }, dlPanel);
       var dlRefreshBtn = el("button", { textContent: T("dlRefresh") }, dlCtl);
       var dlClearBtn = el("button", { textContent: T("dlClear") }, dlCtl);
       el("span", { className: "sp" }, dlCtl);
-      var dlCloseBtn = el("button", { textContent: T("closePanel") }, dlCtl);
       el("div", { className: "dsh-webbox-dl" }, dlPanel);
       dlRefreshBtn.addEventListener("click", function () { renderDownloads(); });
       dlClearBtn.addEventListener("click", function () {
         downloads = downloads.filter(function (d) { return d.state === "downloading"; });
         saveDownloads(); renderDownloads(); updateDlBadge();
       });
-      dlCloseBtn.addEventListener("click", function () { togglePanel(null); });
       // 设置面板头部与控件
-      el("h3", { textContent: T("settingsTitle") }, setPanel);
+      panelHead(setPanel, T("settingsTitle"));
       var setBox = el("div", { className: "dsh-webbox-set" }, setPanel);
       var st = readSettings();
       el("label", { textContent: T("langLabel") }, setBox);
@@ -447,25 +457,21 @@ window.__ModuleLoader__.load({
       el("div", { className: "note", textContent: T("webNote") }, setBox);
       // 历史/书签面板
       histPanel = el("div", { className: "dsh-webbox-panel", id: "dsh-webbox-histpanel" }, panels);
-      el("h3", { textContent: T("histTitle") }, histPanel);
+      panelHead(histPanel, T("histTitle"));
       var histCtl = el("div", { className: "pc" }, histPanel);
       var histClearBtn = el("button", { textContent: T("histClear") }, histCtl);
       var histImportBtn = el("button", { textContent: T("histImport") }, histCtl);
       el("span", { className: "sp" }, histCtl);
-      var histCloseBtn = el("button", { textContent: T("closePanel") }, histCtl);
       histList = el("div", { className: "dsh-webbox-dl" }, histPanel);
       bkPanel = el("div", { className: "dsh-webbox-panel", id: "dsh-webbox-bkpanel" }, panels);
-      el("h3", { textContent: T("bkTitle") }, bkPanel);
+      panelHead(bkPanel, T("bkTitle"));
       var bkCtl = el("div", { className: "pc" }, bkPanel);
       var bkClearBtn = el("button", { textContent: T("bkClear") }, bkCtl);
       el("span", { className: "sp" }, bkCtl);
-      var bkCloseBtn = el("button", { textContent: T("closePanel") }, bkCtl);
       bkList = el("div", { className: "dsh-webbox-dl" }, bkPanel);
       histClearBtn.addEventListener("click", function () { history = []; saveHist(); renderHistory(); });
       histImportBtn.addEventListener("click", importLegacy);
-      histCloseBtn.addEventListener("click", function () { togglePanel(null); });
       bkClearBtn.addEventListener("click", function () { bookmarks = []; saveBk(); renderBookmarks(); updateFavBtn(); });
-      bkCloseBtn.addEventListener("click", function () { togglePanel(null); });
       histList.addEventListener("click", function (e) {
         var r = e.target && e.target.closest ? e.target.closest("[data-h]") : null;
         if (!r) return;
@@ -573,19 +579,19 @@ window.__ModuleLoader__.load({
       var dlPc = win.querySelector("#dsh-webbox-dlpanel .pc");
       if (dlPc) {
         var db = dlPc.querySelectorAll("button");
-        var dt = [T("dlRefresh"), T("dlClear"), T("closePanel")];
+        var dt = [T("dlRefresh"), T("dlClear")];
         for (var j = 0; j < db.length && j < dt.length; j++) db[j].textContent = dt[j];
       }
       var hPc = win.querySelector("#dsh-webbox-histpanel .pc");
       if (hPc) {
         var hb = hPc.querySelectorAll("button");
-        var ht = [T("histClear"), T("histImport"), T("closePanel")];
+        var ht = [T("histClear"), T("histImport")];
         for (var j2 = 0; j2 < hb.length && j2 < ht.length; j2++) hb[j2].textContent = ht[j2];
       }
       var bPc = win.querySelector("#dsh-webbox-bkpanel .pc");
       if (bPc) {
         var bb = bPc.querySelectorAll("button");
-        var bt = [T("bkClear"), T("closePanel")];
+        var bt = [T("bkClear")];
         for (var j3 = 0; j3 < bb.length && j3 < bt.length; j3++) bb[j3].textContent = bt[j3];
       }
       var sPc = win.querySelector("#dsh-webbox-setpanel .pc");
@@ -594,6 +600,8 @@ window.__ModuleLoader__.load({
         var st2 = [T("histClear"), T("bkClear")];
         for (var j4 = 0; j4 < sb.length && j4 < st2.length; j4++) sb[j4].textContent = st2[j4];
       }
+      var pcB = win.querySelectorAll(".dsh-webbox-pclose");
+      for (var j5 = 0; j5 < pcB.length; j5++) pcB[j5].title = T("closePanel");
       updateFavBtn();
     }
 
