@@ -40,6 +40,7 @@ window.__ModuleLoader__.load({
         bkTitle: "收藏夹", bkEmpty: "暂无收藏", bkClear: "清空收藏", bkAdd: "收藏本页", bkRemove: "取消收藏", bkAdded: "已收藏", bkRemoved: "已取消收藏",
         dlTitle: "下载", dlRefresh: "刷新", dlClear: "清空已完成", dlEmpty: "暂无下载记录", st_downloading: "下载中", st_completed: "完成", st_interrupted: "失败", st_cancelled: "已取消",
         dlPause: "暂停", dlResume: "继续", dlCancel: "取消", dlRedo: "重新下载", dlCopy: "复制链接", dlSize: "大小", dlSpeed: "速度",
+        saveFileTitle: "保存文件", dlNow2: "下载", saveAs: "另存为…", dlFrom: "来源",
         dlDoneTitle: "下载完成", dlDoneBody: " 已下载", copyOk: "链接已复制", copyFail: "复制失败",
         errTitle: "无法访问此网站", errRetry: "重试", errExternal: "在系统浏览器打开",
         startHint: "输入网址或搜索词, 回车打开",
@@ -53,6 +54,7 @@ window.__ModuleLoader__.load({
         bkTitle: "Bookmarks", bkEmpty: "No bookmarks yet", bkClear: "Clear bookmarks", bkAdd: "Bookmark this page", bkRemove: "Remove bookmark", bkAdded: "Bookmarked", bkRemoved: "Bookmark removed",
         dlTitle: "Downloads", dlRefresh: "Refresh", dlClear: "Clear completed", dlEmpty: "No downloads yet", st_downloading: "Downloading", st_completed: "Completed", st_interrupted: "Failed", st_cancelled: "Cancelled",
         dlPause: "Pause", dlResume: "Resume", dlCancel: "Cancel", dlRedo: "Redownload", dlCopy: "Copy link", dlSize: "Size", dlSpeed: "Speed",
+        saveFileTitle: "Save File", dlNow2: "Download", saveAs: "Save As…", dlFrom: "From",
         dlDoneTitle: "Download complete", dlDoneBody: " downloaded", copyOk: "Link copied", copyFail: "Copy failed",
         errTitle: "This site can't be reached", errRetry: "Retry", errExternal: "Open in system browser",
         startHint: "Enter URL or search, press Enter",
@@ -182,6 +184,7 @@ window.__ModuleLoader__.load({
       }
       bookmarks.unshift({ url: url, title: title || "", t: Date.now() });
       saveBk();
+      recordHistory(url, title || ""); // 收藏同时写入历史,两个面板都能找到
       renderChrome();
     }
     function updateFavBtn() {
@@ -299,7 +302,17 @@ window.__ModuleLoader__.load({
         ".dsh-webbox-set label{display:block;color:#a6adc8;margin:14px 0 6px;font-size:12px}" +
         ".dsh-webbox-set select{width:100%;height:30px;background:#181825;border:1px solid #45475a;color:#cdd6f4;" +
         "border-radius:6px;padding:0 8px;font-size:12px}" +
-        ".dsh-webbox-set .note{color:#6c7086;font-size:11px;margin-top:18px;line-height:1.7}";
+        ".dsh-webbox-set .note{color:#6c7086;font-size:11px;margin-top:18px;line-height:1.7}" +
+        ".dsh-webbox-modal{position:absolute;inset:0;z-index:20;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}" +
+        ".dsh-webbox-modal-box{width:360px;max-width:88%;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.5)}" +
+        ".dsh-webbox-modal-title{font-size:14px;font-weight:600;margin-bottom:10px}" +
+        ".dsh-webbox-modal-line{font-size:12px;color:#cdd6f4;word-break:break-all;margin-bottom:4px}" +
+        ".dsh-webbox-modal-line.sub{color:#6c7086;font-size:11px;margin-bottom:14px}" +
+        ".dsh-webbox-modal-btns{display:flex;gap:8px;justify-content:flex-end}" +
+        ".dsh-webbox-modal-btns button{background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer}" +
+        ".dsh-webbox-modal-btns button:hover{background:#45475a}" +
+        ".dsh-webbox-modal-btns button.primary{background:#89b4fa;color:#11111b;border-color:#89b4fa;font-weight:600}" +
+        ".dsh-webbox-modal-btns button.primary:hover{background:#a5c8fb}";
       (document.head || document.documentElement).appendChild(s);
     }
 
@@ -405,7 +418,13 @@ window.__ModuleLoader__.load({
       reloadBtn.addEventListener("click", function () { var t = activeTab(); if (!t) return; if (t.loading) stopLoad(t); else reloadTab(t); });
       gearBtn.addEventListener("click", function () { togglePanel("settings"); });
       dlBtn.addEventListener("click", function () { togglePanel("downloads"); renderDownloads(); });
-      extBtn.addEventListener("click", function () { var t = activeTab(); if (t && /^https?:\/\//i.test(t.url)) window.open(t.url, "_blank"); });
+      extBtn.addEventListener("click", function () {
+        var t = activeTab();
+        if (!t || !/^https?:\/\//i.test(t.url)) return;
+        // 弹窗拦截环境里 window.open 不可靠 → 服务端内核直接调系统默认浏览器(cmd start)
+        fetch("/__dsh_web_open__/external?url=" + encodeURIComponent(t.url), { mode: "cors" })
+          .catch(function () { try { window.open(t.url, "_blank"); } catch (e) {} });
+      });
       win.querySelector(".dsh-webbox-close").addEventListener("click", function () { win.hidden = true; clearSnapshot(); });
       // 地址栏
       urlInput.addEventListener("keydown", function (e) {
@@ -906,6 +925,63 @@ window.__ModuleLoader__.load({
       else if (done > 0) { dlBtn.style.color = "#a6e3a1"; cnt.textContent = String(done); cnt.style.display = "block"; }
       else { dlBtn.style.color = ""; cnt.style.display = "none"; }
     }
+    // 下载确认框:点下载链接先弹"保存文件"(文件名/大小),可选 下载 / 另存为… / 取消
+    function confirmDownload(url, name0) {
+      var w = ensureWindow();
+      w.hidden = false;
+      loadDownloads();
+      for (var i = 0; i < downloads.length; i++) {
+        if (downloads[i].url === url && downloads[i].state === "downloading" && !downloads[i].paused) {
+          togglePanel("downloads");
+          return;
+        }
+      }
+      // HEAD 预检:拿真实文件名与大小
+      fetch("/__dsh_web_open__/fetch?url=" + encodeURIComponent(url), { method: "HEAD", mode: "cors" })
+        .then(function (r) {
+          var name = name0 || guessName(url);
+          var size = 0;
+          if (r.ok) {
+            var cd = r.headers.get("content-disposition");
+            if (cd) {
+              var m1 = cd.match(/filename\*=UTF-8''([^;]+)/i);
+              var m2 = cd.match(/filename="?([^";]+)"?/i);
+              if (m1 && m1[1]) { try { name = decodeURIComponent(m1[1]); } catch (e) { name = m1[1]; } }
+              else if (m2 && m2[1]) name = m2[1].trim();
+            }
+            var cr = r.headers.get("content-range");
+            var cl = r.headers.get("content-length");
+            if (cr) { var mm = cr.match(/\/(\d+)/); if (mm) size = Number(mm[1]) || 0; }
+            else if (cl) size = Number(cl) || 0;
+          }
+          showDlConfirm(url, name, size);
+        })
+        .catch(function () { showDlConfirm(url, name0 || guessName(url), 0); });
+    }
+    function showDlConfirm(url, name, size) {
+      var w = ensureWindow();
+      var old = w.querySelector(".dsh-webbox-modal");
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+      var modal = el("div", { className: "dsh-webbox-modal" }, w);
+      var box = el("div", { className: "dsh-webbox-modal-box" }, modal);
+      el("div", { className: "dsh-webbox-modal-title", textContent: T("saveFileTitle") }, box);
+      el("div", { className: "dsh-webbox-modal-line", textContent: String(name || "download") }, box);
+      el("div", { className: "dsh-webbox-modal-line sub", textContent: (size > 0 ? fmtSize(size) + " · " : "") + T("dlFrom") + " " + String(url) }, box);
+      var btns = el("div", { className: "dsh-webbox-modal-btns" }, box);
+      var bDl = el("button", { className: "primary", textContent: T("dlNow2") }, btns);
+      var bSa = el("button", { textContent: T("saveAs") }, btns);
+      var bCancel = el("button", { textContent: T("cancel") }, btns);
+      var close = function () { if (modal.parentNode) modal.parentNode.removeChild(modal); };
+      bDl.addEventListener("click", function () { close(); startDownload(url, name); });
+      bSa.addEventListener("click", function () {
+        close();
+        // 让浏览器原生接管:新窗口直接把 /fetch 下载流当文件处理(Chrome 系会弹另存为/进下载栏)
+        try { window.open("/__dsh_web_open__/fetch?url=" + encodeURIComponent(url), "_blank"); } catch (e) {}
+      });
+      bCancel.addEventListener("click", close);
+      modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
+    }
+
     function startDownload(url, name0) {
       loadDownloads();
       var w = ensureWindow();
@@ -1161,7 +1237,7 @@ window.__ModuleLoader__.load({
         e.stopPropagation();
         if (isDownloadLink(el0, href)) {
           var ln = (el0.textContent || "").trim();
-          startDownload(href, ln || "");
+          confirmDownload(href, ln || "");
         } else {
           openInWebbox(href); // 服务端 SSE 回推 page 事件 → openTab
         }

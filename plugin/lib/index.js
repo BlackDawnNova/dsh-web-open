@@ -541,10 +541,12 @@ export function apply(ctx) {
       });
       // 下载流代理:客户端下载面板用(进度/暂停/续传都建立在它之上)。
       // 透传 Range 实现断点续传;上游 body 流式 pipe,不占内存;客户端断开即中止上游。
+      // 支持 HEAD:客户端保存确认框先用它预检文件名/大小。
       addRoute('/__dsh_web_open__/fetch', async (req, res) => {
         try {
           if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*' }); res.end(); return; }
-          if (req.method !== 'GET') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
+          if (req.method !== 'GET' && req.method !== 'HEAD') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
+          const isHead = req.method === 'HEAD';
           const u = new URL(req.url || '/', 'http://127.0.0.1');
           const target = cleanTarget(u.searchParams.get('url') || '');
           if (!URL_RE.test(target)) { sendJson(res, 400, { ok: false, error: 'bad url' }); return; }
@@ -557,8 +559,13 @@ export function apply(ctx) {
           };
           const range = u.searchParams.get('range');
           if (range && /^bytes=\d+-/.test(range)) fh['range'] = range; // 续传/重试:透传断点
-          const fres = await fetch(target, { redirect: 'follow', signal: ctrl.signal, headers: fh });
-          if (!fres.ok || !fres.body) {
+          const fres = await fetch(target, {
+            method: isHead ? 'HEAD' : 'GET',
+            redirect: 'follow',
+            signal: isHead ? AbortSignal.timeout(15_000) : ctrl.signal,
+            headers: fh,
+          });
+          if (!fres.ok) {
             sendJson(res, 502, { ok: false, error: 'upstream HTTP ' + (fres.status || 0) });
             return;
           }
@@ -567,6 +574,19 @@ export function apply(ctx) {
             'cache-control': 'no-store',
             'x-dsh-proxied-url': fres.url || target,
           };
+          for (const k of ['content-type', 'content-length', 'content-disposition', 'content-range', 'accept-ranges']) {
+            const v = fres.headers.get(k);
+            if (v) out[k] = String(v).replace(/[\r\n]/g, '');
+          }
+          if (isHead) {
+            res.writeHead(200, out);
+            res.end();
+            return;
+          }
+          if (!fres.body) {
+            sendJson(res, 502, { ok: false, error: 'upstream has no body' });
+            return;
+          }
           for (const k of ['content-type', 'content-length', 'content-disposition', 'content-range', 'accept-ranges']) {
             const v = fres.headers.get(k);
             if (v) out[k] = String(v).replace(/[\r\n]/g, '');
@@ -582,6 +602,19 @@ export function apply(ctx) {
           if (/abort/i.test(msg)) { try { res.destroy(); } catch {} return; }
           sendJson(res, 502, { ok: false, error: msg });
         }
+      });
+      // 在系统默认浏览器打开:webview/弹窗拦截环境里 window.open 不可靠,
+      // 改由内核直接调系统浏览器(与 openSystemBrowser 同机制,等同旧版 shell.openExternal)
+      addRoute('/__dsh_web_open__/external', async (req, res) => {
+        try {
+          if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*' }); res.end(); return; }
+          if (req.method !== 'GET') { sendJson(res, 405, { ok: false, error: 'method not allowed' }); return; }
+          const u = new URL(req.url || '/', 'http://127.0.0.1');
+          const target = cleanTarget(u.searchParams.get('url') || '');
+          if (!URL_RE.test(target)) { sendJson(res, 400, { ok: false, error: 'bad url' }); return; }
+          openSystemBrowser(target);
+          sendJson(res, 200, { ok: true, opened: target });
+        } catch (e) { sendJson(res, 500, { ok: false, error: String((e && e.message) || e) }); }
       });
       // 旧版(Electron 时代)数据只读迁移:dsh-web-open-history/bookmarks/tabs.json,供客户端一键导入
       addRoute('/__dsh_web_open__/legacy', async (_req, res) => {
