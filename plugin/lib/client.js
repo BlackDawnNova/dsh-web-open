@@ -276,9 +276,9 @@ window.__ModuleLoader__.load({
         ".dsh-webbox-pclose{flex:0 0 auto;width:22px;height:22px;border-radius:6px;background:transparent;border:none;" +
         "color:#9ca3af;font-size:14px;cursor:pointer;line-height:1}" +
         ".dsh-webbox-pclose:hover{background:#dc2626;color:#fff}" +
-        ".dsh-webbox-panel .pc{margin:8px 14px 10px;display:flex;gap:6px;align-items:center}" +
+        ".dsh-webbox-panel .pc{margin:12px 14px 12px;display:flex;gap:10px;align-items:center}" +
         ".dsh-webbox-panel .pc button{background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:6px;" +
-        "padding:4px 10px;font-size:11px;cursor:pointer}" +
+        "padding:5px 14px;font-size:12px;cursor:pointer}" +
         ".dsh-webbox-panel .pc button:hover{background:#45475a}" +
         ".dsh-webbox-panel .pc .sp{flex:1}" +
         ".dsh-webbox-dl{flex:1 1 auto;overflow-y:auto;padding:0 14px 14px}" +
@@ -698,7 +698,7 @@ window.__ModuleLoader__.load({
       var key = "t" + (++tabSeq);
       var frame = el("iframe", {
         className: "dsh-webbox-frame",
-        sandbox: "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox",
+        sandbox: "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads",
         referrerPolicy: "no-referrer",
       });
       bodyBox.appendChild(frame);
@@ -780,8 +780,11 @@ window.__ModuleLoader__.load({
     function loadFrame(t) {
       t.loading = true;
       updateNavState();
+      // 本插件同源端点(/__dsh_web_open__/...)直接裸加载,不再套代理——否则相对路径会被代理当外部 URL 拒绝(bad url)
+      var isLocal = /^\/__dsh_web_open__\//.test(t.url) ||
+        t.url.indexOf(window.location.origin + "/__dsh_web_open__/") === 0;
       var q = /^data:/i.test(t.url) ? "" : (t.url.indexOf("?") >= 0 ? "&r=" : "?r=") + Date.now();
-      t.frame.src = proxyUrl(t.url) + q;
+      t.frame.src = isLocal ? t.url + q : proxyUrl(t.url) + q;
       urlInput.value = /^data:/i.test(t.url) ? "" : t.url;
       saveSnapshot();
       updateFavBtn();
