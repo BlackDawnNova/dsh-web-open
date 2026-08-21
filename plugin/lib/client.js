@@ -40,7 +40,7 @@ window.__ModuleLoader__.load({
         favAdd: "收藏到书签", favDel: "取消收藏", extFail: "系统浏览器打开失败",
         bkTitle: "收藏夹", bkEmpty: "暂无收藏", bkClear: "清空收藏", bkAdd: "收藏本页", bkRemove: "取消收藏", bkAdded: "已收藏", bkRemoved: "已取消收藏",
         dlTitle: "下载", dlRefresh: "刷新", dlClear: "清空已完成", dlEmpty: "暂无下载记录", st_downloading: "下载中", st_completed: "完成", st_interrupted: "失败", st_cancelled: "已取消",
-        dlPause: "暂停", dlResume: "继续", dlCancel: "取消", dlRedo: "重新下载", dlCopy: "复制链接", dlSize: "大小", dlSpeed: "速度",
+        dlPause: "暂停", dlResume: "继续", dlCancel: "取消", dlRedo: "重新下载", dlCopy: "复制链接", dlRemove: "移除任务", dlSize: "大小", dlSpeed: "速度",
         saveFileTitle: "保存文件", dlNow2: "下载", saveAs: "另存为…", dlFrom: "来源",
         dlDoneTitle: "下载完成", dlDoneBody: " 已下载", copyOk: "链接已复制", copyFail: "复制失败",
         errTitle: "无法访问此网站", errRetry: "重试", errExternal: "在系统浏览器打开",
@@ -55,7 +55,7 @@ window.__ModuleLoader__.load({
         favAdd: "Add bookmark", favDel: "Remove bookmark", extFail: "External open failed",
         bkTitle: "Bookmarks", bkEmpty: "No bookmarks yet", bkClear: "Clear bookmarks", bkAdd: "Bookmark this page", bkRemove: "Remove bookmark", bkAdded: "Bookmarked", bkRemoved: "Bookmark removed",
         dlTitle: "Downloads", dlRefresh: "Refresh", dlClear: "Clear completed", dlEmpty: "No downloads yet", st_downloading: "Downloading", st_completed: "Completed", st_interrupted: "Failed", st_cancelled: "Cancelled",
-        dlPause: "Pause", dlResume: "Resume", dlCancel: "Cancel", dlRedo: "Redownload", dlCopy: "Copy link", dlSize: "Size", dlSpeed: "Speed",
+        dlPause: "Pause", dlResume: "Resume", dlCancel: "Cancel", dlRedo: "Redownload", dlCopy: "Copy link", dlRemove: "Remove task", dlSize: "Size", dlSpeed: "Speed",
         saveFileTitle: "Save File", dlNow2: "Download", saveAs: "Save As…", dlFrom: "From",
         dlDoneTitle: "Download complete", dlDoneBody: " downloaded", copyOk: "Link copied", copyFail: "Copy failed",
         errTitle: "This site can't be reached", errRetry: "Retry", errExternal: "Open in system browser",
@@ -276,7 +276,7 @@ window.__ModuleLoader__.load({
         ".dsh-webbox-pclose{flex:0 0 auto;width:22px;height:22px;border-radius:6px;background:transparent;border:none;" +
         "color:#9ca3af;font-size:14px;cursor:pointer;line-height:1}" +
         ".dsh-webbox-pclose:hover{background:#dc2626;color:#fff}" +
-        ".dsh-webbox-panel .pc{margin:0 14px 10px;display:flex;gap:6px;align-items:center}" +
+        ".dsh-webbox-panel .pc{margin:8px 14px 10px;display:flex;gap:6px;align-items:center}" +
         ".dsh-webbox-panel .pc button{background:#313244;color:#cdd6f4;border:1px solid #45475a;border-radius:6px;" +
         "padding:4px 10px;font-size:11px;cursor:pointer}" +
         ".dsh-webbox-panel .pc button:hover{background:#45475a}" +
@@ -301,8 +301,8 @@ window.__ModuleLoader__.load({
         ".dsh-webbox-dl .ctl:hover{color:#fff}" +
         ".dsh-webbox-dl .fav{background:transparent;border:none;color:#f9a825;font-size:13px;cursor:pointer;padding:2px 4px;flex:none}" +
         ".dsh-webbox-dl .fav:hover{color:#ffd54f}" +
-        ".dsh-webbox-tabs{display:flex;gap:6px;padding:6px 10px;border-bottom:1px solid #313244}" +
-        ".dsh-webbox-tabs .tb{background:transparent;border:1px solid transparent;color:#a6adc8;border-radius:6px;padding:3px 14px;font-size:12px;cursor:pointer}" +
+        ".dsh-webbox-tabs{display:flex;gap:6px;padding:4px 8px;border-bottom:1px solid #313244}" +
+        ".dsh-webbox-tabs .tb{background:transparent;border:1px solid transparent;color:#a6adc8;border-radius:6px;padding:2px 12px;font-size:12px;cursor:pointer}" +
         ".dsh-webbox-tabs .tb:hover{color:#cdd6f4}" +
         ".dsh-webbox-tabs .tb.on{background:#313244;color:#fff;border-color:#45475a}" +
         ".dsh-webbox-dl .empty{color:#6c7086;padding:16px 0;text-align:center}" +
@@ -313,7 +313,10 @@ window.__ModuleLoader__.load({
         ".dsh-webbox-set .note{color:#6c7086;font-size:11px;margin-top:18px;line-height:1.7}" +
         ".dsh-webbox-modal{position:absolute;inset:0;z-index:20;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}" +
         ".dsh-webbox-modal-box{width:360px;max-width:88%;background:#1e1e2e;border:1px solid #45475a;border-radius:10px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.5)}" +
-        ".dsh-webbox-modal-title{font-size:14px;font-weight:600;margin-bottom:10px}" +
+        ".dsh-webbox-modal-head{display:flex;align-items:center;margin-bottom:10px}" +
+        ".dsh-webbox-modal-title{font-size:14px;font-weight:600;flex:1}" +
+        ".dsh-webbox-modal-x{flex:0 0 auto;width:20px;height:20px;border-radius:5px;background:transparent;border:none;color:#9ca3af;font-size:13px;cursor:pointer;line-height:1}" +
+        ".dsh-webbox-modal-x:hover{background:#dc2626;color:#fff}" +
         ".dsh-webbox-modal-line{font-size:12px;color:#cdd6f4;word-break:break-all;margin-bottom:4px}" +
         ".dsh-webbox-modal-line.sub{color:#6c7086;font-size:11px;margin-bottom:14px}" +
         ".dsh-webbox-modal-btns{display:flex;gap:8px;justify-content:flex-end}" +
@@ -1016,20 +1019,24 @@ window.__ModuleLoader__.load({
       if (old && old.parentNode) old.parentNode.removeChild(old);
       var modal = el("div", { className: "dsh-webbox-modal" }, w);
       var box = el("div", { className: "dsh-webbox-modal-box" }, modal);
-      el("div", { className: "dsh-webbox-modal-title", textContent: T("saveFileTitle") }, box);
+      var headRow = el("div", { className: "dsh-webbox-modal-head" }, box);
+      el("div", { className: "dsh-webbox-modal-title", textContent: T("saveFileTitle") }, headRow);
+      var close = function () { if (modal.parentNode) modal.parentNode.removeChild(modal); };
+      var xb = el("button", { className: "dsh-webbox-modal-x", textContent: "\u00d7", title: T("closePanel") }, headRow);
+      xb.addEventListener("click", close);
       el("div", { className: "dsh-webbox-modal-line", textContent: String(name || "download") }, box);
       el("div", { className: "dsh-webbox-modal-line sub", textContent: (size > 0 ? fmtSize(size) + " · " : "") + T("dlFrom") + " " + String(url) }, box);
       var btns = el("div", { className: "dsh-webbox-modal-btns" }, box);
       var bDl = el("button", { className: "primary", textContent: T("dlNow2") }, btns);
       var bSa = el("button", { textContent: T("saveAs") }, btns);
       var bCancel = el("button", { textContent: T("cancel") }, btns);
-      var close = function () { if (modal.parentNode) modal.parentNode.removeChild(modal); };
       bDl.addEventListener("click", function () { close(); startDownload(url, name); });
       bSa.addEventListener("click", function () {
         close();
-        // 浏览器原生下载:临时 <a download href=fetch流> 点击 → Chromium 弹"另存为"/进浏览器下载栏
-        // (比 window.open 可靠——后者在部分 webview/拦截环境会静默吞掉,表现为"点完没反应直接消失")
-        downloadViaBrowser(url);
+        // 复刻旧版"新标签页选择目录":当前窗口开新标签导航到下载流,交给浏览器下载机制。
+        // window.open 会被弹窗拦截吞掉;a.download 在部分容器(WebView/设静默)直接静默下载,
+        // 标签页导航到下载响应则必然触发浏览器的下载处理(弹另存为/进下载栏),一定有反馈。
+        openTab("/__dsh_web_open__/fetch?url=" + encodeURIComponent(url), name || guessName(url));
       });
       bCancel.addEventListener("click", close);
       modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
@@ -1176,6 +1183,14 @@ window.__ModuleLoader__.load({
       renderDownloads();
       updateDlBadge();
     }
+    function removeDownload(rec) {
+      // 从列表移除该任务(下载中的先中止上游;已结束的直接删掉)
+      if (rec.state === "downloading" && rec.ctrl) { try { rec.ctrl.abort(); } catch (e) {} }
+      for (var i = 0; i < downloads.length; i++) if (downloads[i].id === rec.id) { downloads.splice(i, 1); break; }
+      saveDownloads();
+      renderDownloads();
+      updateDlBadge();
+    }
     function redoDownload(rec) {
       rec.state = "downloading";
       rec.received = 0;
@@ -1244,6 +1259,7 @@ window.__ModuleLoader__.load({
           act += "<button class='ctl' data-a='redo' data-id='" + d.id + "' title='" + T("dlRedo") + "'>\u21bb</button>";
         }
         act += "<button class='ctl' data-a='copy' data-id='" + d.id + "' title='" + T("dlCopy") + "'>\ud83d\udd17</button>";
+        act += "<button class='ctl of' data-a='del' data-id='" + d.id + "' title='" + T("dlRemove") + "'>\u2715</button>";
         html +=
           "<div class='row'><span class='nm' title='" + String(d.url).replace(/'/g, "&#39;") + "'>" + String(d.name || "?").replace(/</g, "&lt;") + "</span>" +
           "<div class='mg'><span class='st st-" + d.state + "'>" + stName + "</span>" + bar + "</div>" +
@@ -1261,6 +1277,7 @@ window.__ModuleLoader__.load({
               if (a === "pause") pauseDownload(rec);
               else if (a === "resume") resumeDownload(rec);
               else if (a === "cancel") cancelDownload(rec);
+              else if (a === "del") removeDownload(rec);
               else if (a === "redo") redoDownload(rec);
               else if (a === "copy") copyLink(rec);
               return;
